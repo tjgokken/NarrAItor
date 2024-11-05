@@ -1,0 +1,63 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableBrowserLink>false</EnableBrowserLink>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="NarrAItor.Api\**" />
+    <Compile Remove="NarrAItor.Shared\**" />
+    <Content Remove="NarrAItor.Api\**" />
+    <Content Remove="NarrAItor.Shared\**" />
+    <EmbeddedResource Remove="NarrAItor.Api\**" />
+    <EmbeddedResource Remove="NarrAItor.Shared\**" />
+    <None Remove="NarrAItor.Api\**" />
+    <None Remove="NarrAItor.Shared\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
+    <PackageReference Include="Blazored.Toast" Version="4.2.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.10" PrivateAssets="all" />
+    <PackageReference Include="OpenAI" Version="2.0.0" />
+    <PackageReference Include="System.Text.Json" Version="6.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="NarrAItor.Shared\NarrAItor.Shared.csproj" />
+  </ItemGroup>
+
+  <!-- Tailwind CSS Build Configuration -->
+  <PropertyGroup>
+    <NpmInstallStampFile>node_modules/.install-stamp</NpmInstallStampFile>
+  </PropertyGroup>
+
+  <Target Name="CheckForNpm" BeforeTargets="NpmInstall">
+    <Exec Command="npm --version" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="ErrorCode" />
+    </Exec>
+    <Error Condition="'$(ErrorCode)' != '0'" Text="NPM is required to build this project." />
+  </Target>
+
+  <Target Name="NpmInstall" BeforeTargets="BuildTailwindCSS" Inputs="package.json" Outputs="$(NpmInstallStampFile)">
+    <Exec Command="npm install" />
+    <Touch Files="$(NpmInstallStampFile)" AlwaysCreate="true" />
+  </Target>
+
+  <Target Name="BuildTailwindCSS" BeforeTargets="Compile">
+	  <Message Importance="high" Text="Building Tailwind CSS..." />
+	  <Exec Command="npm install" ConsoleToMsBuild="true" />
+	  <Exec Command="npm run css:build" ConsoleToMsBuild="true" />
+  </Target>
+
+  <!-- Clean up node_modules when running dotnet clean -->
+  <Target Name="CleanNodeModules" BeforeTargets="Clean">
+    <RemoveDir Directories="node_modules" />
+    <Delete Files="$(NpmInstallStampFile)" />
+  </Target>
+
+</Project>

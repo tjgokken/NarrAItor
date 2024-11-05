@@ -1,0 +1,494 @@
+﻿@page "/"
+@using NarrAItor.Services.Commands
+@using NarrAItor.Services.Commands.Suggestions
+@using NarrAItor.Pages.Components
+@inject IGameService GameService
+@inject ILocalStorageService LocalStorage
+@inject ILogger<Home> Logger
+@inject IJSRuntime JS
+@inject CommandHandler CommandHandler
+@inject ICommandSuggestionService SuggestionService
+
+<div class="min-h-screen bg-gray-900 text-white">
+    <!-- Header - Show always -->
+    <header class="bg-gray-800 border-b border-gray-700 p-6">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
+                    NarrAItor
+                </h1>
+            </div>
+            @if (!isGameStarted)
+            {
+                @if (hasExistingSave)
+                {
+                    <SaveGamePanel CurrentGame="@gameState" OnGameLoaded="@HandleGameLoaded" />
+                }
+            }
+            else
+            {
+                <div class="flex items-center gap-2">
+                    <SaveGamePanel CurrentGame="@gameState" OnGameLoaded="@HandleGameLoaded" />
+                    <button class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center space-x-2"
+                            @onclick="ConfirmMainMenu">
+                        <span>🏠</span>
+                        <span>Main Menu</span>
+                    </button>
+                </div>
+            }
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto p-6">
+        @if (!isGameStarted)
+        {
+            <!-- Theme Selection -->
+            <h2 class="text-2xl font-semibold mb-8 text-center">Choose Your Adventure Theme</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                @foreach (var theme in ThemeDefinition.PresetThemes)
+                {
+                    <div class="bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all">
+                        <div class="flex h-48">
+                            <div class="w-1/3">
+                                @{
+                                    var imgSrc = $"/images/{theme.Key.ToLowerInvariant()}.png";
+                                    var placeholderSrc = $"/api/placeholder/300/400?text={theme.Key}";
+                                }
+                                <img src="@imgSrc"
+                                     alt="@theme.Key"
+                                     class="w-full h-full object-cover"
+                                     @onerror="async () => await OnImageError(theme.Key)" />
+
+                                @if (imageErrors.Contains(theme.Key))
+                                {
+                                    <img src="@placeholderSrc"
+                                         alt="@theme.Key"
+                                         class="w-full h-full object-cover absolute inset-0" />
+                                }
+                            </div>
+                            <div class="w-2/3 p-6">
+                                <h3 class="text-xl font-semibold mb-2">@theme.Key.ToUpper()</h3>
+                                <p class="text-gray-400 text-sm mb-4">@theme.Value.Description</p>
+                                @if (selectedTheme == theme.Key)
+                                {
+                                    <button class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg"
+                                            @onclick:stopPropagation
+                                            @onclick="GenerateGame">
+                                        <span>🎲</span>
+                                        Begin Your @theme.Key Adventure
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg"
+                                            @onclick="() => SelectTheme(theme.Key)">
+                                        Select Theme
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <!-- Game Interface -->
+            <div class="game-interface bg-gray-900 rounded-lg p-6">
+                <div class="game-output mb-6 overflow-y-auto max-h-[60vh]" @ref="outputRef">
+                    @foreach (var message in gameState.GameLog)
+                    {
+                        <p class="@message.Type.ToString().ToLower() mb-2 break-words">@message.Content</p>
+                    }
+                </div>
+                <div class="game-status mb-4">
+                    <div class="inventory p-3 rounded">
+                        <span class="text-green-400">Inventory:</span>
+                        @if (gameState.Inventory.Any())
+                        {
+                            <span class="text-green-300">@string.Join(", ", gameState.Inventory.Select(i => i.Name))</span>
+                        }
+                        else
+                        {
+                            <span class="text-gray-500">empty</span>
+                        }
+                    </div>
+                </div>
+                <div class="game-input relative">
+                    <input @bind="userInput"
+                           @bind:event="oninput"
+                           @onkeyup="HandleInput"
+                           placeholder="What would you like to do?"
+                           disabled="@isProcessing"
+                           class="w-full p-3 rounded text-green-400 placeholder-gray-600"
+                           @ref="inputBox" />
+                    @if (isProcessing)
+                    {
+                        <div class="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            <div class="animate-pulse text-green-400">...</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </main>
+</div>
+
+@if (isGenerating)
+{
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl flex flex-col items-center space-y-4">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            <p class="text-lg text-white">Generating your @selectedTheme adventure...</p>
+            @if (currentAttempt > 0)
+            {
+                <p class="text-gray-400">Attempt @currentAttempt of @MaxRetries</p>
+            }
+        </div>
+    </div>
+}
+
+@code {
+
+    #region Fields
+
+    private GameState gameState = new("default");
+    private string? selectedTheme;
+    private bool isGameStarted;
+    private bool isProcessing;
+    private bool isGenerating;
+    private bool hasExistingSave;
+    private string userInput = string.Empty;
+    private ElementReference inputBox;
+    private ElementReference outputRef;
+    private readonly List<string> commandHistory = new();
+    private int commandIndex = -1;
+    private bool showSavedGamesModal;
+    private List<SavedGameInfo> savedGames = new();
+    private int currentAttempt;
+    private const int MaxRetries = 3;
+    private bool hasShownSuggestions;
+    private readonly Dictionary<string, DateTime> _lastSuggestionTimes = new();
+    private const int SuggestionCooldownMinutes = 5;
+    private readonly HashSet<string> imageErrors = new();
+
+    #endregion
+
+    #region Initialization
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        try
+        {
+            var savedId = await LocalStorage.GetItemAsync<string>("CurrentGameId");
+            hasExistingSave = !string.IsNullOrEmpty(savedId);
+
+            if (hasExistingSave)
+            {
+                var saved = await LocalStorage.GetItemAsync<GameState>($"game_{savedId}");
+                if (saved is not null)
+                {
+                    gameState = saved;
+                }
+            }
+
+            await ShowSuggestions();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to check for saved games");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await ShowSuggestions();
+        }
+    }
+
+    #endregion
+
+    #region Theme Selection
+
+    private async Task OnImageError(string theme)
+    {
+        await InvokeAsync(() =>
+        {
+            imageErrors.Add(theme);
+            StateHasChanged();
+        });
+    }
+
+    private void SelectTheme(string theme)
+    {
+        selectedTheme = theme;
+    }
+
+    #endregion
+
+    #region Game Management
+
+    private async Task GenerateGame()
+    {
+        if (string.IsNullOrWhiteSpace(selectedTheme))
+        {
+            Logger.LogWarning("Attempted to generate game with no theme selected");
+            return;
+        }
+
+        try
+        {
+            isGenerating = true;
+            currentAttempt = 1;
+            Logger.LogInformation($"Starting game generation for theme: {selectedTheme}");
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            gameState = await GameService.GenerateNewGame(selectedTheme, cts.Token);
+
+            if (gameState == null)
+            {
+                throw new Exception("GameService returned null gameState");
+            }
+
+            Logger.LogInformation("Game generated successfully. Saving game...");
+            await SaveGame();
+
+            isGameStarted = true;
+            Logger.LogInformation("Displaying room description...");
+            DisplayRoomDescription();
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, $"Game generation failed for theme: {selectedTheme}");
+        }
+        finally
+        {
+            isGenerating = false;
+            currentAttempt = 0;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveGame()
+    {
+        try
+        {
+            await LocalStorage.SetItemAsync("CurrentGameId", gameState.GameId);
+            await LocalStorage.SetItemAsync($"game_{gameState.GameId}", gameState);
+            gameState.AddToLog("Game saved!", MessageType.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save game");
+            gameState.AddToLog("Failed to save game.", MessageType.Error);
+        }
+    }
+
+    private async Task HandleGameLoaded(GameState loadedGame)
+    {
+        gameState = loadedGame;
+        isGameStarted = true;
+        DisplayRoomDescription();
+        StateHasChanged();
+    }
+
+    private void ConfirmMainMenu()
+    {
+        isGameStarted = false;
+        gameState = new GameState("default");
+    }
+
+    #endregion
+
+    #region Command Handling
+
+    private async Task HandleInput(KeyboardEventArgs e)
+    {
+        if (isProcessing) return;
+
+        switch (e.Key)
+        {
+            case "Enter" when !string.IsNullOrWhiteSpace(userInput):
+                await ProcessCommand();
+                break;
+            case "ArrowUp":
+                NavigateCommandHistory(-1);
+                break;
+            case "ArrowDown":
+                NavigateCommandHistory(1);
+                break;
+        }
+    }
+
+    private void NavigateCommandHistory(int direction)
+    {
+        if (commandHistory.Count == 0) return;
+
+        commandIndex = Math.Clamp(commandIndex + direction, -1, commandHistory.Count - 1);
+
+        userInput = commandIndex == -1 ? "" : commandHistory[commandIndex];
+
+        StateHasChanged();
+    }
+
+    private async Task ProcessCommand()
+    {
+        if (isProcessing) return;
+
+        isProcessing = true;
+        var command = userInput.ToLower().Trim();
+        gameState.AddToLog(command, MessageType.Input);
+
+        commandHistory.Insert(0, command);
+        if (commandHistory.Count > 50)
+            commandHistory.RemoveAt(50);
+        commandIndex = -1;
+
+        try
+        {
+            if (gameState.CurrentRoomId == null || !gameState.Rooms.ContainsKey(gameState.CurrentRoomId))
+            {
+                gameState.AddToLog("Error: Current room is undefined.", MessageType.Error);
+                return;
+            }
+            await HandleCommand(command);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error processing command");
+            gameState.AddToLog("Error processing command.", MessageType.Error);
+        }
+        finally
+        {
+            userInput = "";
+            isProcessing = false;
+            StateHasChanged();
+            await inputBox.FocusAsync();
+            await JS.InvokeVoidAsync("scrollToBottom", outputRef);
+        }
+    }
+
+    private async Task HandleCommand(string command)
+    {
+        try
+        {
+            await CommandHandler.HandleCommand(command, gameState);
+
+            if (ShouldResetSuggestions(command))
+            {
+                await ResetSuggestions();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling command: {Command}", command);
+            gameState.AddToLog("Something went wrong processing that command.");
+        }
+    }
+
+    #endregion
+
+    #region Suggestions
+
+    private Task ShowSuggestions()
+    {
+        if (!isProcessing && !hasShownSuggestions)
+        {
+            if (gameState.CurrentRoomId == null || !gameState.Rooms.ContainsKey(gameState.CurrentRoomId))
+            {
+                gameState.AddToLog("Error: Unable to show suggestions due to undefined current room.", MessageType.Error);
+                return Task.CompletedTask;
+            }
+
+            var currentTime = DateTime.UtcNow;
+            if (!_lastSuggestionTimes.TryGetValue(gameState.CurrentRoomId, out var lastTime) ||
+                (currentTime - lastTime).TotalMinutes >= SuggestionCooldownMinutes)
+            {
+                var suggestions = SuggestionService.GetSuggestions(gameState).ToList();
+                if (suggestions.Any())
+                {
+                    gameState.AddToLog("\nHint: Try these commands:");
+                    foreach (var suggestion in suggestions.Take(3))
+                    {
+                        gameState.AddToLog($"- {suggestion.Command} ({suggestion.Reason})");
+                    }
+
+                    _lastSuggestionTimes[gameState.CurrentRoomId] = currentTime;
+                    hasShownSuggestions = true;
+                }
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task ResetSuggestions()
+    {
+        hasShownSuggestions = false;
+        return ShowSuggestions();
+    }
+
+    private bool ShouldResetSuggestions(string command)
+    {
+        var commandLower = command.ToLower();
+        return commandLower.StartsWith("go ") ||
+               commandLower.StartsWith("take ") ||
+               commandLower.StartsWith("use ") ||
+               commandLower.StartsWith("talk ");
+    }
+
+    #endregion
+
+    #region Room Display
+
+    private void DisplayRoomDescription(bool detailed = false)
+    {
+        if (gameState.CurrentRoomId == null || !gameState.Rooms.ContainsKey(gameState.CurrentRoomId))
+        {
+            Logger.LogError("Cannot display room description - invalid room state");
+            gameState.AddToLog("Error: Unable to display room description.", MessageType.Error);
+            return;
+        }
+
+        var room = gameState.Rooms[gameState.CurrentRoomId];
+        gameState.AddToLog($"\n{room.Name}");
+
+        if (detailed)
+        {
+            gameState.AddToLog(room.Description.Detailed ?? room.Description.Initial);
+        }
+        else
+        {
+            gameState.AddToLog(room.Description.Initial);
+        }
+
+        if (room.Atmosphere != null)
+        {
+            if (!string.IsNullOrEmpty(room.Atmosphere.Sights))
+                gameState.AddToLog(room.Atmosphere.Sights);
+        }
+
+        var exits = string.Join(", ", room.Exits.Keys);
+        gameState.AddToLog($"Exits: {exits}");
+
+        if (room.Items.Any())
+        {
+            gameState.AddToLog($"You see: {string.Join(", ", room.Items.Select(i => i.Name))}");
+        }
+
+        StateHasChanged();
+    }
+
+    #endregion
+
+}
